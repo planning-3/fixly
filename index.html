@@ -993,7 +993,7 @@ var RESET0=!!RAW0&&(function(){try{var o=JSON.parse(RAW0);return !(o&&o.v===S.v)
 /* VER10: 저장에 실패하면 조용히 넘어가지 않고 화면 위 안내 줄로 알림. 다시 저장되면 안내를 거둠 */
 var SAVE_FAIL=false;
 persist=function(){try{localStorage.setItem(KEY,JSON.stringify(S));if(SAVE_FAIL){SAVE_FAIL=false;noticeOff("save")}}catch(e){if(!SAVE_FAIL){SAVE_FAIL=true;notice("바꾼 내용을 이 브라우저에 저장하지 못했어요. 저장 공간이 찼을 수 있어요. 통계자료에서 엑셀로 내보내 두면 안전해요.","error","save")}}};
-var UI={view:"board",csort:{},cmem:{},csortOpen:null,acctOpen:false,mview:"",ptab:"voc",f:{q:"",squad:"",chapter:"",src:""},rf:{st:"",q:"",store:"",star:""},rsort:{k:"ts",dir:"desc"},df:"",dq:"",dtab:"list",dsort:"desc",period:defaultPeriod(),kp:{},raising:false,editMinutes:false,rsq:"",rtab:"rules",sel:null,test:""};
+var UI={view:"board",csort:{},cmem:{},csortOpen:null,acctOpen:false,mview:"",ptab:"work",f:{q:"",squad:"",chapter:"",src:""},rf:{st:"",q:"",store:"",star:""},rsort:{k:"ts",dir:"desc"},df:"",dq:"",dtab:"list",dsort:"desc",period:defaultPeriod(),kp:{},raising:false,editMinutes:false,rsq:"",rtab:"rules",sel:null,test:""};
 
 /* ---------- 도구 ---------- */
 var $=function(s,r){return (r||document).querySelector(s)};
@@ -1659,7 +1659,9 @@ function flowBox(){
 }
 /* ---------- 통계자료: VOC 현황(업무용, 기본) / fixly 현황(발표용) ---------- */
 /* 원래 perfTop·perfBody보다 뒤에 선언해 덮어씀. fixly 현황 탭은 원래 KPI 카드 9개를 그대로 씀 */
-var PTABS=[["voc","VOC 현황"],["fixly","fixly 현황"]];
+/* VER10: VOC 현황을 탭 4개로 나눔. 멘토링 순서대로 지금 처리할 것(처리 성과)이 맨 앞, 월 단위 분석(추이)이 맨 뒤 */
+var PTABS=[["work","처리 성과"],["issues","주제별 이슈"],["ver","버전·영향도"],["trend","리뷰·별점 추이"],["fixly","fixly 현황"]];
+function ptabNow(){var p=UI.ptab;return PTABS.some(function(t){return t[0]===p})?p:"work"}
 function dById(id){return S.discuss.filter(function(x){return x.id===id})[0]}
 // 리뷰가 간 팀 (티켓·논의 요청을 따라감). 미분류·제외는 팀 없음
 function sqOf(r){if(r.res==="ticket"||r.res==="urgent"){var t=tk(r.ref);return t?t.squad:""}if(r.res==="request"){var d=dById(r.ref);return d?d.squad:""}return ""}
@@ -1720,24 +1722,32 @@ function vDelta(cur,prev,fmtd,upGood){
   if(cur==null||prev==null)return null;var df=cur-prev;if(Math.abs(df)<1e-9)return {txt:"– "+prevLabel()+"과 같음 ",cls:""};
   var good=upGood==null?null:(df>0)===upGood;return {txt:(df>0?"▲ ":"▼ ")+fmtd(Math.abs(df))+" "+prevLabel()+" 대비"+(good==null?"":good?" · 좋아짐":" · 나빠짐")+" ",cls:good==null?"":good?"good":"bad"};
 }
-function vocTiles(){
-  /* VER10: 계산 중 오류가 나면 5칸 모두 "–" + 노란 안내 */
-  try{statGuard();return vocTilesCalc()}
-  catch(e){if(window.console)console.warn("[fixly] VOC 현황 숫자 칸 계산 실패",e);
-    return statWarn()+'<div class="vtiles">'+["리뷰 수","평균 별점","긴급 이슈 "+urgHelp(),"★1~2 답글률","가장 오래 열린 티켓"].map(function(l){return vTile(l,"–","",null)}).join("")+'</div>'}
-}
-function vocTilesCalc(){
+/* VER10: 숫자 칸을 탭별로 나눠 씀 (긴급 이슈 → 주제별 이슈, 리뷰 수·평균 별점 → 리뷰·별점 추이).
+   ★1~2 답글률·가장 오래 열린 티켓은 처리 성과의 '스토어 답글'·'오래 열린 티켓'과 겹쳐서 뺌 */
+function vtLabel(k){return k==="rv"?"리뷰 수":k==="star"?"평균 별점":"긴급 이슈 "+urgHelp()}
+function vocTiles(keys){
   var all=vocRv(),R=pRangeTs(),PR=prevR(),cur=all.filter(function(r){return inR(r,R)}),prv=PR?all.filter(function(r){return inR(r,PR)}):null;
-  var lowCur=cur.filter(function(r){return r.star<=2}),lowRep=lowCur.filter(function(r){return r.rts});
-  var urgN=issues().filter(function(x){return isBurst(x.id)}).length;
-  var open=S.tickets.filter(function(t){return t.st!=="done"&&t.at&&(!UI.psq||t.squad===UI.psq)}),oldest=open.length?Math.max.apply(null,open.map(function(t){return ago(t.at)})):null;
-  return '<div class="vtiles">'+
-    vTile("리뷰 수",cur.length+'<span class="u">건</span>',"",prv&&vDelta(cur.length,prv.length,function(x){return x+"건"},null))+
-    vTile("평균 별점",cur.length?"★"+avgStar(cur).toFixed(2):"–","",prv&&prv.length&&vDelta(avgStar(cur),avgStar(prv),function(x){return x.toFixed(2)},true))+
-    vTile("긴급 이슈 "+urgHelp(),urgN+'<span class="u">개</span>',"하루 "+URG_N+"건 이상 몰린 적 있는 이슈",null)+
-    vTile("★1~2 답글률",pct(lowCur.length?lowRep.length/lowCur.length:null),lowCur.length?lowRep.length+" / "+lowCur.length+"건에 스토어 답글":"",null)+
-    vTile("가장 오래 열린 티켓",oldest==null?"–":oldest+'<span class="u">일째</span>',"열린 티켓 "+open.length+"개 중",null)+
-  '</div>';
+  var T={
+    rv:function(){return vTile(vtLabel("rv"),cur.length+'<span class="u">건</span>',"",prv&&vDelta(cur.length,prv.length,function(x){return x+"건"},null))},
+    star:function(){return vTile(vtLabel("star"),cur.length?"★"+avgStar(cur).toFixed(2):"–","",prv&&prv.length&&vDelta(avgStar(cur),avgStar(prv),function(x){return x.toFixed(2)},true))},
+    urg:function(){var n=issues().filter(function(x){return isBurst(x.id)}).length;return vTile(vtLabel("urg"),n+'<span class="u">개</span>',"하루 "+URG_N+"건 이상 몰린 적 있는 이슈",null)}
+  };
+  return '<div class="vtiles">'+keys.map(function(k){return T[k]()}).join("")+'</div>';
+}
+/* VER10: 탭 하나의 내용. 계산 중 오류가 나면 숫자 대신 "–" + 노란 안내 (1번 작업을 탭마다) */
+var WORK_L=["열린 티켓","마감 지남","열린 티켓 경과","첫 리뷰 → 티켓","티켓 → 완료","완료 뒤 같은 불만"];
+function vocTabBody(pt){
+  try{statGuard();
+    if(pt==="issues")return vocTiles(["urg"])+vocIssues();
+    if(pt==="ver")return '<div class="vtwo">'+vocVersions()+vocImpact()+'</div>';
+    if(pt==="trend")return vocTiles(["rv","star"])+vocTrend();
+    return vocWork();
+  }catch(e){if(window.console)console.warn("[fixly] VOC 현황 계산 실패: "+pt,e);
+    var keys=pt==="issues"?["urg"]:pt==="trend"?["rv","star"]:[];
+    return statWarn()+
+      (keys.length?'<div class="vtiles">'+keys.map(function(k){return vTile(vtLabel(k),"–","",null)}).join("")+'</div>':'')+
+      (pt==="work"?'<div class="mtiles">'+WORK_L.map(function(l){return '<div class="mtile"><div class="l">'+l+'</div><div class="v">–</div></div>'}).join("")+'</div>':'');
+  }
 }
 
 /* ① 별점 추이: 월별 리뷰 수 · 평균 별점 · ★1~2 비율을 각각 따로 (축 하나씩) + 기간 별점 분포 */
@@ -1833,14 +1843,15 @@ function perfTop(){
     (voc?periodSel():'')+(roleOf()==="member"?'<span class="pill blue">'+esc(me().squad)+' 팀</span>':'<select class="sel" id="pf-sq" aria-label="팀">'+opt(SQ,UI.psq||"","전체 팀")+'</select>')+'<button class="btn" type="button" data-a="'+(voc?"vexport":"export")+'">엑셀로 내보내기</button>';
 }
 function perfBody(){
-  var tabs='<div class="tabs" role="tablist">'+PTABS.map(function(t){return '<button type="button" role="tab" data-a="ptab" data-v="'+t[0]+'" aria-selected="'+((UI.ptab||"voc")===t[0])+'">'+t[1]+'</button>'}).join("")+'</div>';
-  if(UI.ptab==="fixly"){
+  var pt=ptabNow();
+  var tabs='<div class="tabs" role="tablist">'+PTABS.map(function(t){return '<button type="button" role="tab" data-a="ptab" data-v="'+t[0]+'" aria-selected="'+(pt===t[0])+'">'+t[1]+'</button>'}).join("")+'</div>';
+  if(pt==="fixly"){
     var groups=["분류 자동화","처리 속도","업무량·효과"];
     STAT_ERR=false; /* VER10: 카드 중 하나라도 실패하면 맨 위에 노란 안내 */
     var cards=groups.map(function(g){return '<div class="block"><h2>'+g+'</h2><div class="stats">'+KPIS.filter(function(x){return x.g===g}).map(statCard).join("")+'</div></div>'}).join("");
     return tabs+'<div class="stack">'+(STAT_ERR?statWarn():'')+cards+'</div>';
   }
-  return tabs+'<div class="stack">'+vocTiles()+vocTrend()+'<div class="vtwo">'+vocVersions()+vocImpact()+'</div>'+vocIssues()+vocWork()+'</div>';
+  return tabs+'<div class="stack">'+vocTabBody(pt)+'</div>';
 }
 // VOC 현황 내보내기: 맨 위 숫자, 주제별 이슈, 버전별 표를 CSV 한 파일로 (엑셀에서 한글 안 깨지게 BOM)
 function vocCsv(){
