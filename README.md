@@ -2,7 +2,7 @@
 
 기획3팀 AX 팀프로젝트 프로토타입. 파일 하나(`index.html`)로 동작하는 웹 앱입니다. 브라우저로 열면 예시 데이터(무신사 공개 리뷰 500건)와 예시 VOC가 들어 있어 바로 써 볼 수 있습니다.
 
-- 체험: GitHub Pages 주소(저장소 Settings → Pages에서 `main` / root로 켜면 `https://<계정>.github.io/fixly/`)
+- **체험판: https://planning-3.github.io/fixly/** (main 브랜치의 index.html이 그대로 열림. PR이 main에 합쳐지면 1~2분 뒤 자동 반영)
 - 공개 리뷰·공개 자료로 만든 학습 프로젝트이며 무신사와 무관합니다.
 
 ## 폴더
