@@ -338,6 +338,11 @@ textarea.inp{height:auto;padding:8px 9px;width:100%;resize:vertical}
 /* VER10: 통계 집계 실패 안내 (노랑) */
 .statwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-soft);border-left:3px solid var(--amber);border-radius:8px;padding:10px 14px;font-size:var(--fs-s)}
 .statwarn span{flex:1;min-width:0}
+/* VER10: 헤더의 마지막 수집 시각 + 수집 멈춤 배너 */
+.colbadge{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-s);color:var(--muted);white-space:nowrap}
+.colbadge i{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+.colbadge.stale i{background:var(--amber)}
+.statwarn.colbar{border-radius:0;border-width:0 0 1px 0;border-bottom-color:var(--line);padding:8px max(20px,env(safe-area-inset-left,0px))}
 .vsec{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
 .vh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .vh h2{margin:0;font-size:var(--fs-h);font-weight:600}
@@ -1401,12 +1406,27 @@ function peopleBody(){
 }
 
 /* ---------- 렌더 ---------- */
+/* VER10: 헤더에 "리뷰 수집: MM/DD HH:mm 기준"(리뷰확인 탭은 자체 표시가 있어 제외),
+   마지막 수집에서 24시간이 지나면 헤더 위에 노란 배너 + [수동 입력](VOC 연동 창의 첨부하기로) */
+var COL_STALE=24*36e5;
+function colAt(){return S.lastCol||new Date(EXAMPLE_AT).getTime()}
+function colStale(){return Date.now()-colAt()>COL_STALE}
+function fmtMD(ts){var d=new Date(ts),p=function(n){return String(n).padStart(2,"0")};return p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())}
+function colBadge(){return '<span class="colbadge'+(colStale()?' stale':'')+'"><i aria-hidden="true"></i>리뷰 수집: <span class="mono">'+fmtMD(colAt())+'</span> 기준</span>'}
+function drawColbar(){var top=$("#top");if(!top)return;var bar=$("#colbar");
+  if(!colStale()){if(bar)bar.remove();return}
+  if(bar)return;
+  bar=document.createElement("div");bar.id="colbar";bar.className="statwarn colbar";bar.setAttribute("role","alert");
+  bar.innerHTML='<span>⚠ 리뷰 수집이 멈췄어요. 그동안 들어온 리뷰는 수동 입력으로 추가할 수 있어요.</span><button class="btn sm" type="button" data-a="colmanual">수동 입력</button>';
+  top.parentNode.insertBefore(bar,top)}
 function render(){
   renderNav();
   var v=UI.view;
   var map={board:[boardTop,boardBody],done:[doneTop,doneBody],discuss:[discussTop,discussBody],reviews:[reviewsTop,reviewsBody],perf:[perfTop,perfBody],rules:[rulesTop,rulesBody],people:[peopleTop,peopleBody]}[v];
-  $("#top").innerHTML=map[0]();
+  var th=map[0]();if(v!=="reviews")th=th.replace("</h1>","</h1>"+colBadge()); /* VER10: 수집 시각 */
+  $("#top").innerHTML=th;
   $("#body").innerHTML=map[1]();
+  drawColbar(); /* VER10: 수집 멈춤 배너 */
   persist();
 }
 function openMainPanel(html){$("#layer").innerHTML='<div class="modal tkmodal"><div class="tkbox'+(html.indexOf('id="ruleform"')>=0?' rulebox':'')+'" role="dialog" aria-modal="true">'+html+'</div></div>';if(html.indexOf('rvlist allrv')>=0)fitRvList()}
@@ -2454,6 +2474,8 @@ document.addEventListener("click",function(e){
   if(!e.target.closest)return;
   var el=e.target.closest("[data-a]"),a=el?el.getAttribute("data-a"):"";
   if(a==="voc"){openVoc();return}
+  /* VER10: 수집 멈춤 배너의 [수동 입력] → VOC 연동 창을 열고 첨부하기 메뉴를 펼침 */
+  if(a==="colmanual"){openVoc();VOC.xl=true;drawVoc();var xb=$("#vocbox [data-a=vxl]");if(xb){xb.scrollIntoView({block:"center"});xb.focus()}return}
   if(a==="stuncx"){var g=$("#stguide");if(g)g.remove();return}
   if(a==="stunctorule"){closeVoc();location.hash="rules";return}
   if(!$("#vocbox"))return;
