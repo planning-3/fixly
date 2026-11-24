@@ -55,6 +55,8 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .linkbtn{color:var(--muted);text-decoration:underline;text-underline-offset:2px;font-size:var(--fs-xs);text-align:left}
 
 .main{min-width:0;display:flex;flex-direction:column;min-height:0}
+/* VER10(예리): 리뷰확인 상단 "마지막 수집 · 실패 · 원인" 표시 */
+.colfail{color:var(--red);font-weight:500}
 .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-block:12px;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--surface)}
 .top h1{font-size:var(--fs-hh);font-weight:600;margin:0;margin-right:6px}
 .top .sub{color:var(--muted);font-size:var(--fs-s)}
@@ -971,8 +973,19 @@ function seedA0(){
 }
 
 var KEY="fixly_v9_d_"+(WS.co||"none");
-function load(){try{var s=localStorage.getItem(KEY);if(s){var o=JSON.parse(s);if(o&&o.v===17)return o}}catch(e){}return seed()}
+/* VER10(예리 · 오류 대응): 저장 데이터 버전이 다르거나 JSON이 깨졌으면 조용히 초기화하지 않고, 백업 키에 복사한 뒤 예시 데이터로 시작.
+   알림은 아래 RESET0 자리에서 팀 공용 notice()로 띄움(백업 키 이름 포함). 저장 실패 알림은 진다가 넣은 persist 덮어쓰기(notice "save")가 담당 */
+var BACKUP0=null;
+function load(){var s=null;try{s=localStorage.getItem(KEY)}catch(e){}
+  if(s){try{var o=JSON.parse(s);if(o&&o.v===17)return o;backupOld(s,"v"+(o&&o.v))}catch(e){backupOld(s,"corrupt")}}
+  return seed()}
+function backupOld(s,tag){var k=KEY+"_backup_"+tag+"_"+Date.now(),saved=false;try{localStorage.setItem(k,s);saved=true}catch(e){}BACKUP0={tag:tag,key:k,saved:saved}}
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+/* VER10(예리): 수집 결과 기록. S.col = {at: 시각, ok: 성공 여부, n: 새 리뷰 수, err: 실패 원인, src: 출처}.
+   ok=true·n=0 은 "성공했는데 새 리뷰 없음", ok=false 는 "실패". 유진의 헤더 배너(3번)·긴급 카드(1번)가 이 값을 읽는다. S.lastCol은 예전 코드 호환용 */
+function colLog(ok,n,err,src){S.col={at:Date.now(),ok:!!ok,n:n||0,err:err||"",src:src||""};S.lastCol=S.col.at;persist()}
+function colStatus(){var c=S.col;if(!c)return '마지막 수집 <span class="mono">'+esc(fmt(S.lastCol||new Date("2026-11-02T16:05:40").getTime()))+'</span>';
+  return '마지막 수집 <span class="mono">'+esc(fmt(c.at))+'</span> · '+(c.ok?(c.n?'새 리뷰 '+c.n+'건':'새 리뷰 없음')+(c.src?' <span class="faint">('+esc(c.src)+')</span>':''):'<span class="colfail">실패 · '+esc(c.err)+'</span>')}
 /* VER10: 저장돼 있던 데이터를 읽지 못해 처음 상태로 돌아간 경우를 알리려고, 읽기 전 원본을 잡아 둠 (load()는 건드리지 않음) */
 var RAW0=null;try{RAW0=localStorage.getItem(KEY)}catch(e){}
 var S=load();migrateNeed(S);applyTeams();
@@ -1250,7 +1263,7 @@ function discussPanel(d){
 var RES={ticket:["티켓","green"],request:["요청 모음","blue"],unsure:["미분류","amber"],urgent:["긴급","red"],excluded:["제외",""]};
 var RKEYS=[["","모든 처리 결과"],["unsure","미분류"],["urgent","긴급"],["ticket","티켓"],["request","요청 모음"],["excluded","제외"]];
 function reviewsTop(){
-  return '<h1>리뷰확인</h1><span class="collect">마지막 수집 <span class="mono">'+esc(fmt(S.lastCol||new Date("2026-11-02T16:05:40").getTime()))+'</span><button class="btn sm" type="button" data-a="recollect" title="스토어에서 리뷰를 다시 가져와요">↻ 새로고침</button></span><span class="grow"></span>'+
+  return '<h1>리뷰확인</h1><span class="collect">'+colStatus()+'<button class="btn sm" type="button" data-a="recollect" title="스토어에서 리뷰를 다시 가져와요">↻ 새로고침</button></span><span class="grow"></span>'+
   periodSel()+
   '<select class="sel" id="rf-store" aria-label="인입처">'+optN(storeList(),UI.rf.store,"모든 인입처",function(v){return S.reviews.filter(function(r){return inP(r)&&rvIn(r)&&(!v||r.store===v)}).length})+'</select>'+
   '<select class="sel" id="rf-star" aria-label="별점">'+[["","모든 별점"],["5","★5"],["4","★4"],["3","★3"],["2","★2"],["1","★1"]].map(function(k){var n=S.reviews.filter(function(r){return inP(r)&&rvIn(r)&&(!k[0]||r.star===+k[0])}).length;return '<option value="'+k[0]+'"'+(UI.rf.star===k[0]?" selected":"")+'>'+k[1]+' ('+n+')</option>'}).join("")+'</select>'+
@@ -1428,15 +1441,14 @@ function peopleBody(){
    마지막 수집에서 24시간이 지나면 헤더 위에 노란 배너 + [수동 입력](VOC 연동 창의 첨부하기로) */
 var COL_STALE=24*36e5;
 function colAt(){return S.lastCol||new Date(EXAMPLE_AT).getTime()}
-function colStale(){return Date.now()-colAt()>COL_STALE}
+function colStale(){return (S.col&&!S.col.ok)||Date.now()-colAt()>COL_STALE} /* VER10(예리): 마지막 수집이 실패(S.col.ok=false)여도 배너 */
 function fmtMD(ts){var d=new Date(ts),p=function(n){return String(n).padStart(2,"0")};return p(d.getMonth()+1)+"/"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())}
 function colBadge(){return '<span class="colbadge'+(colStale()?' stale':'')+'"><i aria-hidden="true"></i>리뷰 수집: <span class="mono">'+fmtMD(colAt())+'</span> 기준</span>'}
 function drawColbar(){var top=$("#top");if(!top)return;var bar=$("#colbar");
   if(!colStale()){if(bar)bar.remove();return}
-  if(bar)return;
-  bar=document.createElement("div");bar.id="colbar";bar.className="statwarn colbar";bar.setAttribute("role","alert");
-  bar.innerHTML='<span>리뷰 수집이 멈췄어요. 그동안 들어온 리뷰는 수동 입력으로 추가할 수 있어요.</span><button class="btn sm" type="button" data-a="colmanual">수동 입력</button>';
-  top.parentNode.insertBefore(bar,top)}
+  if(!bar){bar=document.createElement("div");bar.id="colbar";bar.className="statwarn colbar";bar.setAttribute("role","alert");top.parentNode.insertBefore(bar,top)}
+  var why=S.col&&!S.col.ok?"리뷰 수집에 실패했어요("+esc(S.col.err)+"). ":"리뷰 수집이 멈췄어요. "; /* VER10(예리): 실패 원인은 S.col.err */
+  bar.innerHTML='<span>'+why+'그동안 들어온 리뷰는 수동 입력으로 추가할 수 있어요.</span><button class="btn sm" type="button" data-a="colmanual">수동 입력</button>'}
 function render(){
   renderNav();
   var v=UI.view;
@@ -2184,13 +2196,13 @@ document.addEventListener("click",function(e){
 /* ---------- 리뷰확인 새로고침: 링크로 연결한 회사는 처음 고른 기간 안에서 새 리뷰를 모아 분류 (이미 받은 리뷰는 건너뜀) ---------- */
 function recollect(el){
   el.disabled=true;el.textContent="수집하는 중";
-  if(WS.info&&WS.info.snap&&location.protocol==="file:"){setTimeout(function(){S.lastCol=Date.now();render();notice("예시 링크는 미리 모아 둔 리뷰만 보여 줘요. 새 리뷰는 fixly 서버 주소로 열어야 모아요.","info","collect")},600);return}
-  if(!(WS.info&&WS.info.src==="link"&&WS.info.url)){setTimeout(function(){S.lastCol=Date.now();render();notice("연동한 앱이 없어요. 왼쪽 아래 'VOC 연동'에서 앱스토어 링크를 넣으면 새 리뷰를 모아 와요.","info","collect")},700);return}
+  if(WS.info&&WS.info.snap&&location.protocol==="file:"){setTimeout(function(){colLog(true,0,"","예시 리뷰");render();notice("예시 링크는 미리 모아 둔 리뷰만 보여 줘요. 새 리뷰는 fixly 서버 주소로 열어야 모아요.","info","collect")},600);return}
+  if(!(WS.info&&WS.info.src==="link"&&WS.info.url)){setTimeout(function(){colLog(true,0,"","연동한 앱 없음");render();notice("연동한 앱이 없어요. 왼쪽 아래 'VOC 연동'에서 앱스토어 링크를 넣으면 새 리뷰를 모아 와요.","info","collect")},700);return}
   fetch("/api/collect?url="+encodeURIComponent(WS.info.url)+(WS.info.from?"&from="+WS.info.from+"&to="+WS.info.to:WS.info.months?"&months="+WS.info.months:"&n=200")).then(function(r){return r.json().then(function(j){if(!r.ok||j.error)throw new Error(j.error||"리뷰를 가져오지 못했어요");return j})}).then(function(j){
-    var tb=S.tickets.length,db=S.discuss.length,add=addReviews(S,j.reviews);S.lastCol=Date.now();
+    var tb=S.tickets.length,db=S.discuss.length,add=addReviews(S,j.reviews);colLog(true,add.length,"","스토어");
     WS.info.n=S.reviews.length;try{localStorage.setItem("fixly_v9_app_A",JSON.stringify(WS.info))}catch(e){}
     render();noticeOff("collect");toast(add.length?"새 리뷰 "+add.length+"건을 분류했어요 (티켓 "+(S.tickets.length-tb)+"개, 논의 요청 "+(S.discuss.length-db)+"개)":"새 리뷰가 없어요");
-  }).catch(function(e){render();notice(location.protocol==="file:"?"파일로 열어서 새 리뷰를 모으지 못했어요. fixly 서버 주소로 열어 주세요.":(e.message||"리뷰를 가져오지 못했어요")+". 이미 모은 리뷰는 그대로예요. 잠시 뒤 새로고침을 다시 눌러 주세요.","error","collect")});
+  }).catch(function(e){var m=location.protocol==="file:"?"파일로 열어서 새 리뷰를 모으지 못했어요. fixly 서버 주소로 열어 주세요.":((e&&e.message)||"리뷰를 가져오지 못했어요")+". 이미 모은 리뷰는 그대로예요. 잠시 뒤 새로고침을 다시 눌러 주세요.";colLog(false,0,m,"스토어");render();notice(m,"error","collect")});
 }
 /* ---------- VER8: VOC 연동 ----------
    시작 화면 없이 바로 fixly로 들어감. 왼쪽 아래 'VOC 연동'를 누르면 티켓 상세처럼 창이 열리고,
@@ -2404,7 +2416,7 @@ function runVoc(){
         var i=WS.info;
         if(fresh){WS.info={src:"voc",app:{name:"우리 회사 VOC",storeName:""},collectedAt:new Date().toISOString(),voc:i.voc};i=WS.info}
         if(j){i.src="link";i.url=url;i.snap=!!j.snap;i.app=j.app;i.collectedAt=j.collectedAt;i.months=VOC.months==="custom"?0:VOC.months;i.from=VOC.months==="custom"?VOC.from:"";i.to=VOC.months==="custom"?VOC.to:""}
-        S.lastCol=Date.now();
+        colLog(true,add.length,"",j?(j.snap?"예시 리뷰":"스토어"):(file?"첨부 파일":"메일·게시판"));
         if(file)i.voc.files.push({name:file.name,n:file.raw.length,at:Date.now()});
         saveInfo();render();
         vStep(iCls,"ok",add.length<raw.length?"새 VOC "+add.length+"건 (이미 받은 "+(raw.length-add.length)+"건은 건너뜀)":"VOC "+add.length+"건 → 티켓 "+c.ticket+" · 논의 "+c.request+" · 미분류 "+c.unsure+" · 제외 "+c.excluded);
@@ -2412,6 +2424,7 @@ function runVoc(){
         setTimeout(function(){VOC.phase="done";VOC.file=null;VOC.url="";vStep(iCls+1,"ok","티켓 "+ts.length+"개 · 논의 요청 "+Object.keys(add.reduce(function(m,r){if(r.res==="request")m[r.ref]=1;return m},{})).length+"개 · 담당자 자동 배정");renderWs()},800);
       },1100);
     }).catch(function(e){VOC.phase="err";VOC.msg=location.protocol==="file:"&&!sn?"파일로 열면 스토어 리뷰를 모을 수 없어요. fixly 서버 주소(예: http://localhost:5173)로 열어 주세요.":(e&&e.message||"VOC를 가져오지 못했어요");
+      colLog(false,0,VOC.msg,"스토어");
       VOC.steps.forEach(function(s){if(s.s==="run")s.s="err"});drawVoc()});
   };
   if(pull&&isExample())askConfirm("예시 데이터를 비우고 우리 회사 VOC로 시작할까요?","지금 보이는 <b>예시 데이터(무신사 앱 리뷰)</b>의 티켓·논의 요청·댓글은 지워지고, 연동한 VOC로 새로 만들어요. 분류규칙과 팀원은 그대로 써요.","우리 회사 VOC로 시작",function(){go(true)});
@@ -2840,7 +2853,7 @@ document.addEventListener("drop",function(e){
 
 route();
 /* VER10: 예전 형식이라 읽지 못한 데이터가 있었으면 시작할 때 한 번 알림 */
-if(RESET0)notice("이 브라우저에 저장돼 있던 데이터가 예전 형식이라 읽지 못했어요. 처음 상태로 다시 시작해요.","error","reset");
+if(RESET0)notice(BACKUP0?((BACKUP0.tag==="corrupt"?"이 브라우저에 저장돼 있던 데이터를 읽지 못했어요.":"이 브라우저에 저장돼 있던 데이터가 예전 형식("+BACKUP0.tag+")이라 읽지 못했어요.")+" 처음 상태로 다시 시작해요. "+(BACKUP0.saved?"이전 데이터는 백업해 두었어요(키 "+BACKUP0.key+").":"저장 공간이 부족해 백업은 하지 못했어요.")):"이 브라우저에 저장돼 있던 데이터가 예전 형식이라 읽지 못했어요. 처음 상태로 다시 시작해요.","error","reset"); /* VER10(예리): 백업 키 안내 */
 })();
 </script>
 
