@@ -335,6 +335,9 @@ textarea.inp{height:auto;padding:8px 9px;width:100%;resize:vertical}
 .vtile .u,.mtile .u{font-family:var(--sans);font-size:var(--fs-s);color:var(--muted);margin-left:2px;font-weight:400}
 .vtile .d{font-size:var(--fs-xs);color:var(--muted);display:flex;flex-wrap:wrap;gap:0 4px}
 .vtile .d.good{color:var(--accent)} .vtile .d.bad{color:var(--red)}
+/* VER10: 통계 집계 실패 안내 (노랑) */
+.statwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-soft);border-left:3px solid var(--amber);border-radius:8px;padding:10px 14px;font-size:var(--fs-s)}
+.statwarn span{flex:1;min-width:0}
 .vsec{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:0}
 .vh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .vh h2{margin:0;font-size:var(--fs-h);font-weight:600}
@@ -1271,15 +1274,24 @@ var KPIS=[
   {k:"save",g:"업무량·효과",t:"절감 시간 (추정)",kind:"text",f:function(R){var m=Math.round(R.length*2.5);return {txt:Math.floor(m/60)+"시간 "+(m%60)+"분",basis:"리뷰 "+R.length+"건 × (수작업 3분 − 검수 0.5분) [가정]"}}},
   {k:"req",g:"업무량·효과",t:"개선 요청 비율",kind:"pct",f:function(R){var q=R.filter(function(r){return r.res==="request"}).length;return {v:q,n:R.length,basis:"수집 리뷰 "+R.length+"건 중 개선 요청으로 모인 "+q+"건 · 논의보드로"}}}
 ];
+/* VER10: 통계 계산이 실패하면 숫자 대신 "–" + 노란 안내 + [새로고침]. 0건(정상)과 실패를 구분하려는 것.
+   주소 뒤에 ?statfail=1 을 붙여 열면 일부러 실패시켜 안내 화면을 확인할 수 있음 */
+var STAT_FAIL=/[?&]statfail=1(&|$)/.test(location.search),STAT_ERR=false;
+function statGuard(){if(STAT_FAIL)throw new Error("statfail 시험 모드")}
+function statWarn(){return '<div class="statwarn" role="alert"><span>⚠ 통계를 불러오지 못했어요. 새로고침하거나 잠시 후 다시 확인하세요.</span><button class="btn sm" type="button" data-a="statretry">새로고침</button></div>'}
 function statCard(x){
-  var p=kpPeriod(x.k);
-  var R=S.reviews.filter(function(r){return inP(r,p)});
-  var Tk=S.tickets.filter(function(t){return t.at&&inP({ts:t.at},p)});
-  var o=x.f(R,Tk),body;
-  if(x.kind==="pct")body=donut(o.n?o.v/o.n*100:0)+'<div class="v">'+o.v+' <span class="sub">/ '+o.n+'</span></div>';
-  else if(x.kind==="num")body='<div class="v">'+(o.v==null?'<span class="sub">해당 없음</span>':(o.dec?o.v.toFixed(o.dec):Math.round(o.v))+'<span class="sub"> '+x.unit+'</span>')+'</div>';
-  else body='<div class="v">'+esc(o.txt)+'</div>';
-  return '<div class="stat"><div class="sh"><span class="l">'+x.t+'</span>'+kpSel(x.k)+'</div><div class="sb">'+body+'</div><div class="basis">기준 '+esc(pRange(p))+' · '+esc(o.basis)+'</div></div>';
+  var p=kpPeriod(x.k),body,basis;
+  try{
+    statGuard();
+    var R=S.reviews.filter(function(r){return inP(r,p)});
+    var Tk=S.tickets.filter(function(t){return t.at&&inP({ts:t.at},p)});
+    var o=x.f(R,Tk);
+    if(x.kind==="pct")body=donut(o.n?o.v/o.n*100:0)+'<div class="v">'+o.v+' <span class="sub">/ '+o.n+'</span></div>';
+    else if(x.kind==="num")body='<div class="v">'+(o.v==null?'<span class="sub">해당 없음</span>':(o.dec?o.v.toFixed(o.dec):Math.round(o.v))+'<span class="sub"> '+x.unit+'</span>')+'</div>';
+    else body='<div class="v">'+esc(o.txt)+'</div>';
+    basis=o.basis;
+  }catch(e){STAT_ERR=true;if(window.console)console.warn("[fixly] 통계 계산 실패: "+x.t,e);body='<div class="v">–</div>';basis="계산하지 못했어요"}
+  return '<div class="stat"><div class="sh"><span class="l">'+x.t+'</span>'+kpSel(x.k)+'</div><div class="sb">'+body+'</div><div class="basis">기준 '+esc(pRange(p))+' · '+esc(basis)+'</div></div>';
 }
 function perfTop(){return '<h1>통계자료</h1><span class="grow"></span><select class="sel" id="pf-sq" aria-label="팀">'+opt(SQ,UI.psq||"","전체 팀")+'</select><button class="btn" type="button" data-a="export">엑셀로 내보내기</button>'}
 /* 지금 화면의 카드 값과 팀별 표를 CSV로 내려받음. 맨 앞 BOM 덕에 엑셀에서 한글이 깨지지 않음 */
@@ -1659,6 +1671,12 @@ function vDelta(cur,prev,fmtd,upGood){
   var good=upGood==null?null:(df>0)===upGood;return {txt:(df>0?"▲ ":"▼ ")+fmtd(Math.abs(df))+" "+prevLabel()+" 대비"+(good==null?"":good?" · 좋아짐":" · 나빠짐")+" ",cls:good==null?"":good?"good":"bad"};
 }
 function vocTiles(){
+  /* VER10: 계산 중 오류가 나면 5칸 모두 "–" + 노란 안내 */
+  try{statGuard();return vocTilesCalc()}
+  catch(e){if(window.console)console.warn("[fixly] VOC 현황 숫자 칸 계산 실패",e);
+    return statWarn()+'<div class="vtiles">'+["리뷰 수","평균 별점","긴급 이슈 "+urgHelp(),"★1~2 답글률","가장 오래 열린 티켓"].map(function(l){return vTile(l,"–","",null)}).join("")+'</div>'}
+}
+function vocTilesCalc(){
   var all=vocRv(),R=pRangeTs(),PR=prevR(),cur=all.filter(function(r){return inR(r,R)}),prv=PR?all.filter(function(r){return inR(r,PR)}):null;
   var lowCur=cur.filter(function(r){return r.star<=2}),lowRep=lowCur.filter(function(r){return r.rts});
   var urgN=issues().filter(function(x){return isBurst(x.id)}).length;
@@ -1768,7 +1786,9 @@ function perfBody(){
   var tabs='<div class="tabs" role="tablist">'+PTABS.map(function(t){return '<button type="button" role="tab" data-a="ptab" data-v="'+t[0]+'" aria-selected="'+((UI.ptab||"voc")===t[0])+'">'+t[1]+'</button>'}).join("")+'</div>';
   if(UI.ptab==="fixly"){
     var groups=["분류 자동화","처리 속도","업무량·효과"];
-    return tabs+'<div class="stack">'+groups.map(function(g){return '<div class="block"><h2>'+g+'</h2><div class="stats">'+KPIS.filter(function(x){return x.g===g}).map(statCard).join("")+'</div></div>'}).join("")+'</div>';
+    STAT_ERR=false; /* VER10: 카드 중 하나라도 실패하면 맨 위에 노란 안내 */
+    var cards=groups.map(function(g){return '<div class="block"><h2>'+g+'</h2><div class="stats">'+KPIS.filter(function(x){return x.g===g}).map(statCard).join("")+'</div></div>'}).join("");
+    return tabs+'<div class="stack">'+(STAT_ERR?statWarn():'')+cards+'</div>';
   }
   return tabs+'<div class="stack">'+vocTiles()+vocTrend()+'<div class="vtwo">'+vocVersions()+vocImpact()+'</div>'+vocIssues()+vocWork()+'</div>';
 }
@@ -1788,6 +1808,7 @@ function vocCsv(){
 document.addEventListener("click",function(e){
   var el=e.target.closest&&e.target.closest("[data-a]");if(!el)return;var a=el.getAttribute("data-a");
   if(a==="ptab"){UI.ptab=el.getAttribute("data-v");render();return}
+  if(a==="statretry"){render();return} /* VER10: 통계 다시 계산 */
   if(a==="isort"){var k=el.getAttribute("data-k"),o=UI.isort||{k:"cur",dir:"desc"};UI.isort=o.k===k?{k:k,dir:o.dir==="asc"?"desc":"asc"}:{k:k,dir:k==="title"||k==="squad"?"asc":"desc"};render();return}
   if(a==="vexport"){vocXlsx();return}
   // 리뷰확인 새로고침: 프로토타입이라 스토어에 실제로 연결하지는 않고, 수집을 다시 돌린 것처럼 시각만 갱신
